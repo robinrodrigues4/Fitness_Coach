@@ -8,7 +8,7 @@ A fully personalised daily diet + home/gym workout tracker — built as a single
 - **Dynamic calorie & macro targets** — calculated using Mifflin-St Jeor BMR × activity factor, auto-adjusts if progress stalls
 - **7-day rotating meal plan** — 3 options per meal slot, every day, remembers your choice
 - **Home or gym workouts** — bodyweight or equipment, beginner to advanced, auto-progresses
-- **AI Coach** — powered by Claude, context-aware answers about your plan
+- **AI Coach** — powered by OpenAI, context-aware answers about your plan
 - **Natural language food logging** — type "I had 2 rotis and dal", AI estimates calories
 - **Calorie tracker** — manual + quick-add + restaurant/canteen items
 - **Analytics** — weight trend chart, body composition, workout volume
@@ -30,8 +30,8 @@ A fully personalised daily diet + home/gym workout tracker — built as a single
 
 Pure HTML + CSS + JavaScript. No framework, no build step, no server.
 Uses [Chart.js](https://chartjs.org) for analytics charts.
-AI features use the [Anthropic API](https://anthropic.com) — requires HTTPS (works on GitHub Pages).
+AI features use the [OpenAI API](https://platform.openai.com/) with a browser-local API key — requires HTTPS (works on GitHub Pages).
 
 ## Privacy
 
-All personal data (weight, meals, workouts, photos) is stored in your browser's `localStorage`. Nothing leaves your device except AI Coach queries sent to the Anthropic API.
+All personal data (weight, meals, workouts, photos) is stored in your browser's `localStorage`. Nothing leaves your device except AI Coach and AI Log queries sent to the OpenAI API when you use those features.

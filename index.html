@@ -582,7 +582,7 @@ body{font-family:'Space Grotesk',sans-serif;background:var(--bg);color:var(--tex
     <div class="alert alert-purple" id="ai-meal-suggest" style="display:none"></div>
     <!-- NL food input -->
     <div style="margin-bottom:8px">
-      <div style="font-size:11px;color:var(--text-muted);margin-bottom:5px">🤖 Type naturally — "I had 2 rotis and dal" or enter manually below</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:5px">🤖 Type naturally - "I had 2 rotis and dal" or enter manually below. AI uses your OpenAI API key saved locally in this browser.</div>
       <div style="display:flex;gap:6px;margin-bottom:7px">
         <input class="inp" id="nl-food-input" placeholder="e.g. 2 rotis and chicken curry" style="flex:1">
         <button class="btn" onclick="nlLogFood()">AI Log</button>
@@ -690,8 +690,14 @@ body{font-family:'Space Grotesk',sans-serif;background:var(--bg);color:var(--tex
 <!-- AI COACH -->
 <section id="ai" class="section">
   <div class="card">
-    <div class="card-title"><div class="card-title-left">🤖 AI Coach</div><span class="badge badge-ai">Powered by Claude</span></div>
+    <div class="card-title"><div class="card-title-left">🤖 AI Coach</div><span class="badge badge-ai">Powered by OpenAI</span></div>
     <div class="alert alert-purple">Ask me anything about your plan — meals, workouts, adjustments, or just what to eat right now based on your macros.</div>
+    <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
+      <input class="inp" id="openai-key-input" placeholder="OpenAI API key" type="password" style="flex:1;min-width:190px" autocomplete="off">
+      <button class="btn btn-ghost btn-sm" onclick="saveOpenAIKey()">Save Key</button>
+      <button class="btn btn-ghost btn-sm" onclick="clearOpenAIKey()">Clear</button>
+      <span id="openai-key-status" style="font-size:11px;color:var(--text-muted)"></span>
+    </div>
     <div class="ai-chat" id="ai-chat"></div>
     <div class="ai-input-row">
       <input class="inp" id="ai-input" placeholder="e.g. What should I eat for dinner? or suggest a workout swap" onkeydown="if(event.key==='Enter')sendAI()">
@@ -745,6 +751,13 @@ body{font-family:'Space Grotesk',sans-serif;background:var(--bg);color:var(--tex
 const todayKey=()=>new Date().toDateString();
 const ls=(k,d)=>{try{return JSON.parse(localStorage.getItem(k)??'null')??d}catch{return d}};
 const lss=(k,v)=>localStorage.setItem(k,JSON.stringify(v));
+const OPENAI_MODEL='gpt-4.1-mini';
+function renderOpenAIStatus(){const el=document.getElementById('openai-key-status');if(el)el.textContent=ls('openai_api_key','')?'OpenAI key saved locally.':'OpenAI key required for AI features.';}
+function saveOpenAIKey(){const inp=document.getElementById('openai-key-input');const key=(inp?.value||'').trim();if(!key){showNotif('OpenAI key missing','Paste your API key first.');return;}lss('openai_api_key',key);inp.value='';renderOpenAIStatus();showNotif('OpenAI connected','AI Coach and AI Log are ready.');}
+function clearOpenAIKey(){localStorage.removeItem('openai_api_key');const inp=document.getElementById('openai-key-input');if(inp)inp.value='';renderOpenAIStatus();showNotif('OpenAI key cleared','AI features will ask for a key next time.');}
+function getOpenAIKey(){let key=ls('openai_api_key','');if(key)return key;key=(window.prompt('Enter your OpenAI API key. It will be saved only in this browser localStorage.')||'').trim();if(key){lss('openai_api_key',key);renderOpenAIStatus();}return key;}
+function extractOpenAIText(data){if(data.output_text)return data.output_text;const parts=[];(data.output||[]).forEach(o=>(o.content||[]).forEach(c=>{if(c.text)parts.push(c.text);if(c.type==='output_text'&&c.text)parts.push(c.text);}));return parts.join('\n');}
+async function callOpenAI({instructions,input,maxOutput=400}){const key=getOpenAIKey();if(!key)throw new Error('OpenAI API key required.');const resp=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:OPENAI_MODEL,instructions,input,max_output_tokens:maxOutput})});let data={};try{data=await resp.json();}catch(e){}if(!resp.ok)throw new Error(data.error?.message||'OpenAI request failed.');const text=extractOpenAIText(data).trim();if(!text)throw new Error('OpenAI returned an empty response.');return text;}
 function fmtTime(t){if(!t)return'';const[h,m]=t.split(':');const hr=parseInt(h);return`${hr===0?12:hr>12?hr-12:hr}:${m} ${hr<12?'AM':'PM'}`}
 function addMins(t,mins){const[h,m]=t.split(':').map(Number);const tot=h*60+m+mins;const nh=((Math.floor(tot/60))%24+24)%24;const nm=((tot%60)+60)%60;return`${String(nh).padStart(2,'0')}:${String(nm).padStart(2,'0')}`}
 function fmtDate(ts){return new Date(ts).toLocaleDateString('en-IN')}
@@ -1011,16 +1024,15 @@ let foodLog=ls('food_'+todayKey(),[]);
 async function nlLogFood(){
   const input=document.getElementById('nl-food-input').value.trim();if(!input)return;
   document.getElementById('nl-food-input').value='';
-  showNotif('🤖 AI Estimating...','Calculating calories for: '+input);
+  showNotif('AI Estimating...','Calculating calories for: '+input);
   try{
-    const resp=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:200,messages:[{role:'user',content:`Estimate the total calories for: "${input}". Reply ONLY with JSON like {"calories":350,"items":[{"name":"2 rotis","cal":160},{"name":"dal","cal":190}]}. No other text.`}]})});
-    const data=await resp.json();const text=data.content[0]?.text||'';
-    const parsed=JSON.parse(text.replace(/```json|```/g,'').trim());
-    parsed.items.forEach(item=>{foodLog.push({name:item.name,cal:item.cal,id:Date.now()+Math.random()});});
-    lss('food_'+todayKey(),foodLog);renderFood();showNotif('✅ Logged','Total: ~'+parsed.calories+' kcal added');
-  }catch(e){showNotif('⚠️ Error','Could not estimate. Please log manually.');}
+    const text=await callOpenAI({maxOutput:220,instructions:'You estimate calories for a fitness food log. Return only valid JSON with this exact shape: {"calories":350,"items":[{"name":"2 rotis","cal":160},{"name":"dal","cal":190}]}. Use integers for calories. No markdown, no commentary.',input:'Food description: '+input});
+    const parsed=JSON.parse(text.replace(/```(?:json)?|```/g,'').trim());
+    if(!Array.isArray(parsed.items)||!parsed.items.length)throw new Error('No food items returned.');
+    parsed.items.forEach(item=>{const cal=parseInt(item.cal,10);if(item.name&&cal>0)foodLog.push({name:String(item.name),cal,id:Date.now()+Math.random()});});
+    lss('food_'+todayKey(),foodLog);renderFood();showNotif('Logged','Total: ~'+(parseInt(parsed.calories,10)||foodLog.reduce((s,f)=>s+f.cal,0))+' kcal added');
+  }catch(e){showNotif('AI Log Error',e.message||'Could not estimate. Please log manually.');}
 }
-
 function addFood(){const n=document.getElementById('food-name').value.trim();const c=parseInt(document.getElementById('food-cal').value);if(!n||!c)return;foodLog.push({name:n,cal:c,id:Date.now()});lss('food_'+todayKey(),foodLog);document.getElementById('food-name').value='';document.getElementById('food-cal').value='';renderFood();}
 function addQF(n,c){foodLog.push({name:n,cal:c,id:Date.now()});lss('food_'+todayKey(),foodLog);renderFood();}
 function delFood(id){foodLog=foodLog.filter(f=>f.id!==id);lss('food_'+todayKey(),foodLog);renderFood();}
@@ -1075,7 +1087,7 @@ function renderCharts(){
   const bcCtx=document.getElementById('body-comp-chart')?.getContext('2d');
   if(bcCtx){const T=calcT();const fatMass=Math.round((T.curW*(T.bf/100))*10)/10;const leanMass=Math.round((T.curW-fatMass)*10)/10;if(bodyChart)bodyChart.destroy();bodyChart=new Chart(bcCtx,{type:'bar',data:{labels:['Body Composition'],datasets:[{label:'Lean Mass (kg)',data:[leanMass],backgroundColor:'var(--accent2)'},{label:'Fat Mass (kg)',data:[fatMass],backgroundColor:'var(--accent)'}]},options:{responsive:true,plugins:{legend:{labels:{color:textCol,font:{size:11}}}},scales:{x:{stacked:true,ticks:{color:textCol},grid:{color:gridCol}},y:{stacked:true,ticks:{color:textCol},grid:{color:gridCol}}}}});const el=document.getElementById('body-comp-text');if(el)el.textContent=`Estimated lean mass: ${leanMass} kg | Fat mass: ${fatMass} kg | Body fat: ~${T.bf}%`;}
 }
-function renderVolumeChart(){const el=document.getElementById('volume-chart');if(!el)return;const today=new Date();const weeks=Array.from({length:6},(_,i)=>{const from=new Date(today);from.setDate(from.getDate()-(i+1)*7);const to=new Date(today);to.setDate(to.getDate()-i*7);const sessions=wkHistory.filter(h=>{const d=new Date(h.date.split('/').reverse().join('-'));return d>=from&&d<to;});return{label:'W-'+(i+1),vol:sessions.reduce((s,h)=>s+(h.sets||6),0)};}).reverse();const maxV=Math.max(...el=>el,1,...weeks.map(w=>w.vol));el.innerHTML=weeks.map(w=>{const h=w.vol>0?Math.max(10,Math.round((w.vol/Math.max(maxV,1))*60)):4;return`<div class="vol-bar-wrap"><div class="vol-bar" style="height:${h}px;opacity:${w.vol>0?0.9:0.2}"></div><div class="vol-bar-label">${w.label}</div></div>`;}).join('');const vtEl=document.getElementById('volume-text');const total=weeks.reduce((s,w)=>s+w.vol,0);if(vtEl)vtEl.textContent=total>0?`Total sets last 6 weeks: ${total}. Average: ${Math.round(total/6)}/week.`:'Log workouts to see volume trend.';}
+function renderVolumeChart(){const el=document.getElementById('volume-chart');if(!el)return;const today=new Date();const weeks=Array.from({length:6},(_,i)=>{const from=new Date(today);from.setDate(from.getDate()-(i+1)*7);const to=new Date(today);to.setDate(to.getDate()-i*7);const sessions=wkHistory.filter(h=>{const d=new Date(h.date.split('/').reverse().join('-'));return d>=from&&d<to;});return{label:'W-'+(i+1),vol:sessions.reduce((s,h)=>s+(h.sets||6),0)};}).reverse();const maxV=Math.max(1,...weeks.map(w=>w.vol));el.innerHTML=weeks.map(w=>{const h=w.vol>0?Math.max(10,Math.round((w.vol/Math.max(maxV,1))*60)):4;return`<div class="vol-bar-wrap"><div class="vol-bar" style="height:${h}px;opacity:${w.vol>0?0.9:0.2}"></div><div class="vol-bar-label">${w.label}</div></div>`;}).join('');const vtEl=document.getElementById('volume-text');const total=weeks.reduce((s,w)=>s+w.vol,0);if(vtEl)vtEl.textContent=total>0?`Total sets last 6 weeks: ${total}. Average: ${Math.round(total/6)}/week.`:'Log workouts to see volume trend.';}
 
 // GROCERY
 function buildGroceryList(){const isVeg=U.diet==='veg';return[{cat:'Protein 💪',items:isVeg?['Paneer (250g)','Low-fat dahi (500ml)','Dal moong+masoor (250g each)','Rajma (250g)','Chole (250g)','Roasted chana (200g)','Tofu (200g)']:['Eggs (2 dozen)','Chicken breast (750g)','Fish pomfret/surmai (500g)','Paneer (100g)','Low-fat dahi (500ml)','Dal moong+masoor (250g each)','Rajma (250g)','Roasted chana (200g)']},{cat:'Carbs 🌾',items:['Multigrain atta (2 kg)','Brown rice (500g)','Oats (500g)','Poha (500g)']},{cat:'Vegetables 🥦',items:['Spinach (250g)','Cucumber (6)','Tomatoes (8)','Capsicum (3)','Onions (6)','Lauki/bottle gourd (1)','Carrots (4)','Cabbage (½)','Green chillies','Coriander (bunch)']},{cat:'Fruits 🍌',items:['Bananas (8)','Apples (4)','Dates (small pack)']},{cat:'Pantry 🏪',items:['Makhana (100g)','Almonds (100g)','Walnuts (50g)','Flaxseeds (100g)','Herbal tea bags','Coffee (instant)','Low-fat milk (1 L)','Ghee (100g)']}];}
@@ -1109,19 +1121,18 @@ async function sendAI(){
   document.getElementById('ai-input').value='';
   const chat=document.getElementById('ai-chat');
   const T=calcT();const latest=wLog[0]?.weight||U.weight;const streak=calcStreak();const todayFood=foodLog.reduce((s,f)=>s+f.cal,0);
-  const context=`User: ${U.name}, ${U.age}y ${U.gender}, ${latest}kg→${U.target}kg, ${U.height}cm. Goal: ${U.goal}. Diet: ${U.diet}. Loc: ${U.loc}. Cal target: ${T.cal}. Today consumed: ${todayFood}kcal. Remaining: ${Math.max(0,T.cal-todayFood)}kcal. Protein target: ${T.protein}g. Workout streak: ${streak}. Schedule: wake ${fmtTime(U.wake)}, work ${fmtTime(U.workStart)}-${fmtTime(U.workEnd)}, commute ${U.commute}min each way.`;
+  const context=`User: ${U.name}, ${U.age}y ${U.gender}, ${latest}kg to ${U.target}kg, ${U.height}cm. Goal: ${U.goal}. Diet: ${U.diet}. Loc: ${U.loc}. Cal target: ${T.cal}. Today consumed: ${todayFood}kcal. Remaining: ${Math.max(0,T.cal-todayFood)}kcal. Protein target: ${T.protein}g. Workout streak: ${streak}. Schedule: wake ${fmtTime(U.wake)}, work ${fmtTime(U.workStart)}-${fmtTime(U.workEnd)}, commute ${U.commute}min each way.`;
   aiHistory.push({role:'user',content:input});
-  chat.innerHTML+=`<div class="ai-msg user">${input}</div>`;
-  const loadId='load'+Date.now();chat.innerHTML+=`<div class="ai-msg bot loading" id="${loadId}"></div>`;chat.scrollTop=chat.scrollHeight;
+  const userMsg=document.createElement('div');userMsg.className='ai-msg user';userMsg.textContent=input;chat.appendChild(userMsg);
+  const loadId='load'+Date.now();const botMsg=document.createElement('div');botMsg.className='ai-msg bot loading';botMsg.id=loadId;chat.appendChild(botMsg);chat.scrollTop=chat.scrollHeight;
   try{
-    const resp=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:400,system:`You are a concise personal fitness coach. Context: ${context}. Give short, practical, specific advice in 2-4 sentences. No fluff.`,messages:aiHistory.slice(-6)})});
-    const data=await resp.json();const reply=data.content[0]?.text||'Sorry, try again.';
+    const historyText=aiHistory.slice(-8).map(m=>`${m.role}: ${m.content}`).join('\n');
+    const reply=await callOpenAI({maxOutput:400,instructions:`You are a concise personal fitness coach. Context: ${context}. Give short, practical, specific advice in 2-4 sentences. No fluff. Include a medical-safety caveat only when the user asks about injury, illness, supplements, medication, or extreme dieting.`,input:historyText});
     aiHistory.push({role:'assistant',content:reply});
-    document.getElementById(loadId).className='ai-msg bot';document.getElementById(loadId).textContent=reply;
-  }catch(e){document.getElementById(loadId).className='ai-msg bot';document.getElementById(loadId).textContent='Network error. Check connection and try again.';}
+    botMsg.className='ai-msg bot';botMsg.textContent=reply;
+  }catch(e){botMsg.className='ai-msg bot';botMsg.textContent=e.message||'Network error. Check connection and try again.';}
   chat.scrollTop=chat.scrollHeight;
 }
-
 // MACRO DISPLAY
 function renderMacroDsp(){const T=calcT();document.getElementById('macro-display').innerHTML=`<div class="macro-card"><div class="macro-num" style="color:var(--accent)">${T.cal}</div><div class="macro-label">Calories</div></div><div class="macro-card"><div class="macro-num" style="color:var(--accent2)">${T.protein}g</div><div class="macro-label">Protein</div></div><div class="macro-card"><div class="macro-num" style="color:var(--accent3)">${T.carbs}g</div><div class="macro-label">Carbs</div></div><div class="macro-card"><div class="macro-num" style="color:var(--blue-text)">${T.fat}g</div><div class="macro-label">Fats</div></div>`;document.getElementById('diet-alert').textContent=`⚠️ Eating window: ${fmtTime(U.wake)} – ${fmtTime(addMins(U.wake,11*60))}. Carbs before ${fmtTime(addMins(U.workStart,-90))} only. Commute: ${U.commute*2} min/day.`;setTimeout(renderMacroPie,100);}
 
@@ -1140,7 +1151,7 @@ function showTab(id,btn){document.querySelectorAll('.section').forEach(s=>s.clas
 // INIT
 function initApp(){
   if(!U)return;
-  doCheckin();applyTheme();renderQuote();renderHero();renderMacroDsp();renderTodayTimeline();initDietTabs();initWorkout();renderWater();renderWeightLog();renderWaistLog();renderPhotoGrid();renderGrocery();renderRecipes();renderTips();renderFood();renderQF();renderRestaurant();renderAIQuick();renderSupps();updateIFTimer();updateStreak();renderHeatmap();updateReport();renderShareCard();renderCheckin();checkSmartAdjust();
+  doCheckin();applyTheme();renderQuote();renderHero();renderMacroDsp();renderTodayTimeline();initDietTabs();initWorkout();renderWater();renderWeightLog();renderWaistLog();renderPhotoGrid();renderGrocery();renderRecipes();renderTips();renderFood();renderQF();renderRestaurant();renderAIQuick();renderOpenAIStatus();renderSupps();updateIFTimer();updateStreak();renderHeatmap();updateReport();renderShareCard();renderCheckin();checkSmartAdjust();
   if(vacationMode){document.getElementById('vacation-banner').style.display='block';document.getElementById('vac-btn').style.opacity='1';}
   if(new Date().getDay()===0&&!ls('weigh_r_'+todayKey(),false)){setTimeout(()=>{showNotif('⚖️ Sunday Weigh-In','Log your weight in the Progress tab!');lss('weigh_r_'+todayKey(),true);},2000);}
   setTimeout(()=>{renderCharts();renderVolumeChart();},500);
